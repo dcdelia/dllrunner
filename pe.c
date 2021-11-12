@@ -8,17 +8,27 @@ DWORD displayExportsAndLocateDllMain(PBYTE pImageBase) {
 
 	PIMAGE_NT_HEADERS pNtHeader = (PIMAGE_NT_HEADERS)(pImageBase + pDosHeader->e_lfanew);
 	if (pNtHeader->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
-		fprintf(stderr, "IMAGE_NT_OPTIONAL_HDR64_MAGIC not supported yet\n");
+		printf("! IMAGE_NT_OPTIONAL_HDR64_MAGIC not supported yet\n");
 		return 0;
 	}
 
 	DWORD exportDirRVA = pNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
 	DWORD exportDirSize = pNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
 
-	PIMAGE_EXPORT_DIRECTORY pExportDir = (PIMAGE_EXPORT_DIRECTORY)(pImageBase + exportDirRVA);
+	if (!exportDirRVA) {
+		printf("! Export directory is apparently empty\n");
+		return 0;
+	}
+
+	PIMAGE_EXPORT_DIRECTORY pExportDir = (PIMAGE_EXPORT_DIRECTORY)(pImageBase + exportDirRVA);	
 	PDWORD pdwFunctions = (PDWORD)(pImageBase + pExportDir->AddressOfFunctions);
 	PWORD pwOrdinals = (PWORD)(pImageBase + pExportDir->AddressOfNameOrdinals);
 	PDWORD pszFuncNames = (PDWORD)(pImageBase + pExportDir->AddressOfNames);
+
+	if (!pExportDir->AddressOfFunctions || !pExportDir->AddressOfNameOrdinals || pExportDir->AddressOfNames) {
+		printf("! Some export directory field is apparently not right\n");
+		return 0;
+	}
 	
 	DWORD unnamed = pExportDir->NumberOfFunctions - pExportDir->NumberOfNames;
 

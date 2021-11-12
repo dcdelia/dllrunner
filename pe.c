@@ -2,9 +2,7 @@
 #include <stdio.h>
 
 // displays exports and returns RVA of DllMain if found
-DWORD parseExports(PBYTE pImageBase) {
-	const BOOL isDebug = FALSE;
-
+DWORD displayExportsAndLocateDllMain(PBYTE pImageBase) {
 	PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)pImageBase;
 	if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE) return 0; // redundant
 
@@ -21,17 +19,10 @@ DWORD parseExports(PBYTE pImageBase) {
 	PDWORD pdwFunctions = (PDWORD)(pImageBase + pExportDir->AddressOfFunctions);
 	PWORD pwOrdinals = (PWORD)(pImageBase + pExportDir->AddressOfNameOrdinals);
 	PDWORD pszFuncNames = (PDWORD)(pImageBase + pExportDir->AddressOfNames);
-
-	if (isDebug) {
-		printf("Export directory at: 0x%p\n", pExportDir);
-		printf("AddressOfFunctons at: 0x%p\n", pdwFunctions);
-		printf("AddressOfNameOrdinals at: 0x%p\n", pwOrdinals);
-		printf("AddressOfNames at: 0x%p\n", pszFuncNames);
-	}
 	
 	DWORD unnamed = pExportDir->NumberOfFunctions - pExportDir->NumberOfNames;
 
-	if (unnamed) {
+	if (unnamed) { // TODO add handling of ordinals only
 		printf("> Unnamed exports: %d\n", unnamed);
 		printf("! Please look their offsets up using an external tool :-/\n");
 	}
@@ -62,7 +53,7 @@ DWORD parseExports(PBYTE pImageBase) {
 		if (!isCode) continue;
 
 		char* name = (char*)(pImageBase + addr_name);
-		printf("+ %s with RVA %x (0x%p)\n", name, rva, pImageBase+rva);
+		printf("+ %s at 0x%p - RVA: %x\n", name, pImageBase+rva, rva);
 
 		if (!strcmp(name, "_DllMain@12")) rvaDllMain = rva;
 	}
@@ -73,12 +64,14 @@ DWORD parseExports(PBYTE pImageBase) {
 
 // process INT and build IAT for current module
 // code borrowed from a popular reflective loader
-// credits: Stephen Fewer and injectAllTheThings 
+// and adapted to work on an already-loaded DLL
+// (see for VirtualProtect on read-only IAT)
+// credits to Stephen Fewer and injectAllTheThings 
 
 #define DEREF( name )*(UINT_PTR *)(name)
 #define DEREF_32( name )*(DWORD *)(name)
 
-void processImports(PBYTE pImageBase) {
+void buildIAT(PBYTE pImageBase) {
 	ULONG_PTR uiBaseAddress = (ULONG_PTR)pImageBase;
 	ULONG_PTR uiValueA;
 	ULONG_PTR uiValueB;
@@ -86,11 +79,9 @@ void processImports(PBYTE pImageBase) {
 	ULONG_PTR uiValueD;
 
 	PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)pImageBase;
-	if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE) return; // redundant
+	//if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE) return; // redundant
 
 	PIMAGE_NT_HEADERS pNtHeader = (PIMAGE_NT_HEADERS)(pImageBase + pDosHeader->e_lfanew);
-
-	// STEP 4: process our images import table...
 
 	// uiValueB = the address of the import directory
 	uiValueB = (ULONG_PTR)&((PIMAGE_NT_HEADERS)pNtHeader)->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
@@ -99,10 +90,10 @@ void processImports(PBYTE pImageBase) {
 	// uiValueC is the first entry in the import table
 	uiValueC = (uiBaseAddress + ((PIMAGE_DATA_DIRECTORY)uiValueB)->VirtualAddress);
 
-	// addition: play with page protection
+	// addition: play with page protection as LoadLibraryEx makes the IAT read-only
 	DWORD oldProtection;
 	ULONG_PTR iatStart = uiBaseAddress + ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->FirstThunk;
-	printf("> Making IAT temporarily writable at: 0x%x\n", iatStart);
+	//printf("> Making IAT temporarily writable at: 0x%x\n", iatStart);
 	VirtualProtect((LPVOID)iatStart, 4096, PAGE_READWRITE, &oldProtection);
 
 	// iterate through all imports
@@ -119,6 +110,9 @@ void processImports(PBYTE pImageBase) {
 				printf("! Failed. Try to provide full path as extra argument to dllrunner\n");
 				exit(1);
 			}
+		}
+		else {
+			printf("> Library %s already been loaded for the runner\n", dllName);
 		}
 
 		ULONG_PTR uiLibraryAddress = (ULONG_PTR)hDll;

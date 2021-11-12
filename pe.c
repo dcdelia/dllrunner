@@ -25,7 +25,7 @@ DWORD displayExportsAndLocateDllMain(PBYTE pImageBase) {
 	PWORD pwOrdinals = (PWORD)(pImageBase + pExportDir->AddressOfNameOrdinals);
 	PDWORD pszFuncNames = (PDWORD)(pImageBase + pExportDir->AddressOfNames);
 
-	if (!pExportDir->AddressOfFunctions || !pExportDir->AddressOfNameOrdinals || pExportDir->AddressOfNames) {
+	if (!pExportDir->AddressOfFunctions || !pExportDir->AddressOfNameOrdinals || !pExportDir->AddressOfNames) {
 		printf("! Some export directory field is apparently not right\n");
 		return 0;
 	}
